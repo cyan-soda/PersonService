@@ -2,11 +2,11 @@ package com.example.personservice.application.service;
 
 import com.example.personservice.domain.model.Person;
 import com.example.personservice.domain.repository.PersonRepository;
-import com.example.personservice.dto.CreatePersonRequestDto;
-import com.example.personservice.dto.PersonResponseDto;
-import com.example.personservice.dto.UpdatePersonRequestDto;
-import com.example.personservice.event.PersonEvent;
-import com.example.personservice.infrastructure.message.PersonEventProducer;
+import com.example.personservice.application.dto.CreatePersonRequestDto;
+import com.example.personservice.application.dto.PersonResponseDto;
+import com.example.personservice.application.dto.UpdatePersonRequestDto;
+import com.example.personservice.infrastructure.messaging.events.PersonEvent;
+import com.example.personservice.infrastructure.messaging.kafka.producers.PersonEventProducer;
 import jakarta.transaction.Transactional;
 import lombok.Getter;
 import lombok.Setter;

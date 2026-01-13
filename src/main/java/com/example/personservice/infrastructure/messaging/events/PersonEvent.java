@@ -1,4 +1,4 @@
-package com.example.personservice.event;
+package com.example.personservice.infrastructure.messaging.events;
 
 import com.example.personservice.domain.model.Person;
 import lombok.*;

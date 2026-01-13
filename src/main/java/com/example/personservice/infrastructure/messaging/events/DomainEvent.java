@@ -1,4 +1,4 @@
-package com.example.personservice.event;
+package com.example.personservice.infrastructure.messaging.events;
 
 import lombok.Getter;
 import lombok.Setter;

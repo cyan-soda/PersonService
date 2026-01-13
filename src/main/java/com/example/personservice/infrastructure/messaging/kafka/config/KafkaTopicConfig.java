@@ -1,4 +1,4 @@
-package com.example.personservice.config;
+package com.example.personservice.infrastructure.messaging.kafka.config;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.context.annotation.Bean;

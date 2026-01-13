@@ -1,4 +1,4 @@
-package com.example.personservice.config;
+package com.example.personservice.infrastructure.messaging.kafka.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;

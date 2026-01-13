@@ -1,8 +1,8 @@
-package com.example.personservice.infrastructure.message;
+package com.example.personservice.infrastructure.messaging.kafka.consumers;
 
 import com.example.personservice.domain.model.Person;
 import com.example.personservice.domain.repository.PersonRepository;
-import com.example.personservice.event.PersonEvent;
+import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;

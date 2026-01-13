@@ -1,6 +1,6 @@
-package com.example.personservice.infrastructure.message;
+package com.example.personservice.infrastructure.messaging.kafka.producers;
 
-import com.example.personservice.event.PersonEvent;
+import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;

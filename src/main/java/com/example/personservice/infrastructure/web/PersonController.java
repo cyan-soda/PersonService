@@ -1,9 +1,9 @@
 package com.example.personservice.infrastructure.web;
 
 import com.example.personservice.application.service.PersonService;
-import com.example.personservice.dto.CreatePersonRequestDto;
-import com.example.personservice.dto.PersonResponseDto;
-import com.example.personservice.dto.UpdatePersonRequestDto;
+import com.example.personservice.application.dto.CreatePersonRequestDto;
+import com.example.personservice.application.dto.PersonResponseDto;
+import com.example.personservice.application.dto.UpdatePersonRequestDto;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

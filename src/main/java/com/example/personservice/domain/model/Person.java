@@ -49,12 +49,6 @@ public class Person {
     @UpdateTimestamp
     private Instant updatedAt;
 
-//    protected Person() {}
-
-//    public Person (String firstName, String lastName, LocalDate dateOfBirth, String taxNumber) {
-//        this.id
-//    }
-
     public void updatePersonInfo(String firstName, String lastName, LocalDate dateOfBirth) {
         this.firstName = firstName;
         this.lastName = lastName;

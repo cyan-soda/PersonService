@@ -58,4 +58,10 @@ public class Person {
     public int getAge() {
         return Period.between(dateOfBirth, LocalDate.now()).getYears();
     }
+
+    public void addTaxDebt(BigDecimal amount) {
+        if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+            this.taxDebt = this.taxDebt.add(amount);
+        }
+    }
 }

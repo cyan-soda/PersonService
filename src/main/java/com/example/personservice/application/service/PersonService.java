@@ -10,13 +10,16 @@ import com.example.personservice.infrastructure.messaging.kafka.producers.Person
 import jakarta.transaction.Transactional;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Getter
 @Setter
 @Service
@@ -105,5 +108,30 @@ public class PersonService {
         dto.setTaxNumber(person.getTaxNumber());
 
         return dto;
+    }
+
+    public void addTaxDebt(String taxNumber, BigDecimal amount) {
+        log.info("Adding taxDebt={} to person with taxNumber={}",
+                amount, taxNumber);
+        try {
+            Optional<Person> person = repository.findByTaxNumber(taxNumber);
+            if (person.isPresent()) {
+                Person saved = person.get();
+                saved.addTaxDebt(amount);
+                repository.save(saved);
+                log.info("Added amount={} for person with taxNumber={}, total taxDebt={}",
+                        amount, taxNumber, saved.getTaxDebt());
+            }
+        } catch (Exception e) {
+            log.error("Error adding amount={} to person with taxNumber={}",
+                    amount, taxNumber);
+            throw new RuntimeException(e);
+        }
+    }
+
+    public BigDecimal getTaxDebt(String taxNumber) {
+        Optional<Person> person = repository.findByTaxNumber(taxNumber);
+        return person.map(Person::getTaxDebt)
+                .orElse(BigDecimal.ZERO);
     }
 }

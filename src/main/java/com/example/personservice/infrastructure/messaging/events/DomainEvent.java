@@ -8,12 +8,12 @@ import java.util.UUID;
 
 @Getter
 @Setter
-public abstract class DomainEvent {
+public abstract class DomainEvent<T extends Enum<T>> {
     private final UUID eventId;
-    private final String eventType;
+    private final T eventType;
     private final Instant occurredOn;
 
-    protected DomainEvent(String eventType) {
+    protected DomainEvent(T eventType) {
         this.eventId = UUID.randomUUID();
         this.eventType = eventType;
         this.occurredOn = Instant.now();

@@ -10,5 +10,4 @@ public class CreatePersonRequestDto {
     private String lastName;
     private LocalDate dateOfBirth;
     private String taxNumber;
-//    private BigDecimal taxDebt;
 }

@@ -29,9 +29,9 @@ public class PersonEventConsumer {
             }
 
             log.info("Received event type: {} for Person with tax number: {}",
-                    event.getAction(), event.getPerson().getTaxNumber());
+                    event.getEventType(), event.getPerson().getTaxNumber());
 
-            switch (event.getAction()) {
+            switch (event.getEventType()) {
                 case CREATE:
                     createPerson(event);
                     break;
@@ -42,7 +42,7 @@ public class PersonEventConsumer {
                     deletePerson(event);
                     break;
                 default:
-                    log.warn("Unknown event type: {}", event.getAction());
+                    log.warn("Unknown event type: {}", event.getEventType());
             }
 
         } catch (Exception exception) {

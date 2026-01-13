@@ -101,7 +101,7 @@ public class PersonService {
         dto.setFirstName(person.getFirstName());
         dto.setLastName(person.getLastName());
         dto.setAge(person.getAge());
-//        dto.setTaxDebt(person.getTaxDebt());
+        dto.setTaxDebt(person.getTaxDebt());
         dto.setTaxNumber(person.getTaxNumber());
 
         return dto;

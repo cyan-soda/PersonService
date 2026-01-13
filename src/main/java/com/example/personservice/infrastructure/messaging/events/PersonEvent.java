@@ -6,19 +6,17 @@ import lombok.*;
 @Getter
 @Setter
 @EqualsAndHashCode(callSuper = true)
-public class PersonEvent extends DomainEvent {
+public class PersonEvent extends DomainEvent<PersonEvent.EventType> {
     public enum EventType { CREATE, UPDATE, DELETE }
 
-    private EventType action;
     private Person person;
 
     public PersonEvent() {
         super(null);
     }
 
-    public PersonEvent(EventType action, Person person) {
-        super(action.name());
-        this.action = action;
+    public PersonEvent(EventType eventType, Person person) {
+        super(eventType);
         this.person = person;
     }
 }

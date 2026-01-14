@@ -17,7 +17,11 @@ public class PersonEventConsumer {
         this.repository = repository;
     }
 
-    @KafkaListener(topics = "person.kafka", groupId = "person.crud.group")
+    @KafkaListener(
+            topics = "person.kafka",
+            groupId = "person.crud.group",
+            containerFactory = "personKafkaListenerContainerFactory"
+    )
     public void handlePersonEvent(PersonEvent event) {
         try {
 

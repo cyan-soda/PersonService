@@ -110,28 +110,4 @@ public class PersonService {
         return dto;
     }
 
-    public void addTaxDebt(String taxNumber, BigDecimal amount) {
-        log.info("Adding taxDebt={} to person with taxNumber={}",
-                amount, taxNumber);
-        try {
-            Optional<Person> person = repository.findByTaxNumber(taxNumber);
-            if (person.isPresent()) {
-                Person saved = person.get();
-                saved.addTaxDebt(amount);
-                repository.save(saved);
-                log.info("Added amount={} for person with taxNumber={}, total taxDebt={}",
-                        amount, taxNumber, saved.getTaxDebt());
-            }
-        } catch (Exception e) {
-            log.error("Error adding amount={} to person with taxNumber={}",
-                    amount, taxNumber);
-            throw new RuntimeException(e);
-        }
-    }
-
-    public BigDecimal getTaxDebt(String taxNumber) {
-        Optional<Person> person = repository.findByTaxNumber(taxNumber);
-        return person.map(Person::getTaxDebt)
-                .orElse(BigDecimal.ZERO);
-    }
 }

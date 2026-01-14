@@ -4,6 +4,7 @@ import com.example.personservice.application.service.PersonService;
 import com.example.personservice.application.dto.CreatePersonRequestDto;
 import com.example.personservice.application.dto.PersonResponseDto;
 import com.example.personservice.application.dto.UpdatePersonRequestDto;
+import com.example.personservice.application.service.TaxService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,9 +16,11 @@ import java.util.List;
 @RequestMapping("/person")
 public class PersonController {
     private final PersonService service;
+    private final TaxService taxService;
 
-    public PersonController(PersonService service) {
+    public PersonController(PersonService service, TaxService taxService) {
         this.service = service;
+        this.taxService = taxService;
     }
 
     @PostMapping
@@ -72,6 +75,15 @@ public class PersonController {
 
     @GetMapping("/tax/debt/{taxNumber}")
     public BigDecimal getTaxDebt(@PathVariable String taxNumber) {
-        return service.getTaxDebt(taxNumber);
+        return taxService.getTaxDebt(taxNumber);
+    }
+
+    @PostMapping("/tax/debt/{taxNumber}")
+    @ResponseStatus(HttpStatus.OK)
+    public void addTaxDebt(
+            @PathVariable String taxNumber,
+            @RequestBody BigDecimal amount
+    ) {
+        taxService.addTaxDebt(taxNumber, amount);
     }
 }

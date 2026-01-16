@@ -1,9 +1,9 @@
 package com.example.personservice.infrastructure.messaging.kafka.consumers;
 
-import com.example.personservice.domain.repository.PersonRepository;
+import com.example.personservice.domain.model.Person;
+import com.example.personservice.infrastructure.repository.PersonRepository;
 import com.example.personservice.infrastructure.messaging.events.TaxCalculationEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -11,11 +11,11 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
+@Slf4j
 @Component
 public class TaxCalculationEventConsumer {
-
-    private static final Logger logger = LoggerFactory.getLogger(TaxCalculationEventConsumer.class);
 
     private final PersonRepository repository;
 
@@ -33,36 +33,32 @@ public class TaxCalculationEventConsumer {
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic
     ) {
 
-        logger.info("Received TaxCalculationEvent from topic: {}, event: {}",
+        log.info("Received TaxCalculationEvent from topic: {}, event: {}",
                 topic, event);
 
         try {
             if (event.getTaxId() == null || event.getTaxId().trim().isEmpty()) {
-                logger.warn("Received TaxCalculationEvent with null or empty taxId: {}", event);
+                log.warn("Received TaxCalculationEvent with null or empty taxId: {}", event);
                 return;
             }
 
             if (event.getAmount() == null || event.getAmount().compareTo(java.math.BigDecimal.ZERO) <= 0) {
-                logger.warn("Received TaxCalculationEvent with invalid amount: {}", event);
+                log.warn("Received TaxCalculationEvent with invalid amount: {}", event);
                 return;
             }
 
             String taxNumber = event.getTaxId();
             BigDecimal amount = event.getAmount();
 
-            repository.findByTaxNumber(taxNumber).ifPresentOrElse(
-                    person -> {
-                        person.addTaxDebt(amount);
-                        repository.save(person);
-                        logger.info("Successfully processed TaxCalculationEvent for taxId: {}, amount: {}, total debt: {}",
-                                taxNumber, amount, person.getTaxDebt());
-                    },
-                    () -> logger.error("Add tax debt failed: Person with taxId: {} not found",
-                            taxNumber)
-            );
+            Person person = repository.findByTaxNumber(taxNumber)
+                    .orElseThrow(() -> new RuntimeException("Person not found with tax number: " + taxNumber));
+            person.addTaxDebt(amount);
+            repository.save(person);
+            log.info("Successfully processed TaxCalculationEvent for taxId: {}, amount: {}, total debt: {}",
+                    taxNumber, amount, person.getTaxDebt());
 
         } catch (Exception e) {
-            logger.error("Error processing TaxCalculationEvent: {}", event, e);
+            log.error("Error processing TaxCalculationEvent: {}", event, e);
         }
     }
 }

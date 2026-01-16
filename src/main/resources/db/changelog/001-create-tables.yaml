@@ -11,10 +11,11 @@ databaseChangeLog:
             columns:
               - column:
                   name: id
-                  type: BIGINT
-                  autoIncrement: true
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
                   constraints:
-                    primaryKey: true
+                      primaryKey: true
+                      nullable: false
               - column:
                   name: first_name
                   type: VARCHAR(255)

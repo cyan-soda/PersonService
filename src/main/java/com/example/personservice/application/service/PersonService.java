@@ -1,100 +1,203 @@
 package com.example.personservice.application.service;
 
+import com.example.personservice.application.dto.person.OperationResponseDto;
 import com.example.personservice.domain.model.Person;
-import com.example.personservice.domain.repository.PersonRepository;
-import com.example.personservice.application.dto.CreatePersonRequestDto;
-import com.example.personservice.application.dto.PersonResponseDto;
-import com.example.personservice.application.dto.UpdatePersonRequestDto;
+import com.example.personservice.infrastructure.exception.PersonAlreadyExistsException;
+import com.example.personservice.infrastructure.exception.PersonNotFoundException;
+import com.example.personservice.infrastructure.exception.PersonServiceException;
+import com.example.personservice.infrastructure.repository.PersonRepository;
+import com.example.personservice.application.dto.person.CreatePersonRequestDto;
+import com.example.personservice.application.dto.person.PersonResponseDto;
+import com.example.personservice.application.dto.person.UpdatePersonRequestDto;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.kafka.producers.PersonEventProducer;
-import jakarta.transaction.Transactional;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
-@Getter
-@Setter
 @Service
-@Transactional
+@RequiredArgsConstructor
 public class PersonService {
     private final PersonRepository repository;
     private final PersonEventProducer producer;
 
-    public PersonService(PersonRepository repository, PersonEventProducer producer) {
-        this.repository = repository;
-        this.producer = producer;
-    }
+    public OperationResponseDto createPerson(CreatePersonRequestDto request) {
+        log.info("Creating person with tax number: {}", request.getTaxNumber());
 
-    public PersonResponseDto createPerson(CreatePersonRequestDto request) {
-        if (repository.existsByTaxNumber(request.getTaxNumber())) {
-            throw new DuplicateKeyException(request.getTaxNumber());
+        try {
+            if (repository.existsByTaxNumber(request.getTaxNumber())) {
+                log.warn("Person with tax number: {} already exists", request.getTaxNumber());
+                throw PersonAlreadyExistsException.withTaxNumber(request.getTaxNumber());
+            }
+
+            Person person = new Person();
+            person.setFirstName(request.getFirstName());
+            person.setLastName(request.getLastName());
+            person.setDateOfBirth(request.getDateOfBirth());
+            person.setTaxNumber(request.getTaxNumber());
+
+            PersonEvent event = new PersonEvent(PersonEvent.EventType.CREATE, person);
+            producer.publishPersonCreated(event);
+
+            return new OperationResponseDto(
+                    "Person creation request successfully sent to Kafka for processing",
+                    "CREATE"
+            );
+
+        } catch (PersonAlreadyExistsException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error creating person with tax number: {}", request.getTaxNumber());
+            throw new PersonServiceException("Failed to create person", e);
         }
-
-        Person person = new Person();
-        person.setFirstName(request.getFirstName());
-        person.setLastName(request.getLastName());
-        person.setDateOfBirth(request.getDateOfBirth());
-        person.setTaxNumber(request.getTaxNumber());
-
-        PersonEvent event = new PersonEvent(PersonEvent.EventType.CREATE, person);
-        producer.publishPersonCreated(event);
-
-        return mapToDto(person);
     }
 
-    public PersonResponseDto updatePerson(Long id, UpdatePersonRequestDto request) {
-        Person person = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Person not found."));
+    public OperationResponseDto updatePerson(UUID id, UpdatePersonRequestDto request) {
+        log.info("Updating person with ID: {}", id);
 
-        person.updatePersonInfo(
-                request.getFirstName(),
-                request.getLastName(),
-                request.getDateOfBirth()
-        );
+        try {
+            Person person = repository.findById(id)
+                    .orElseThrow(() -> {
+                        log.warn("Person not found for update with ID: {}", id);
+                        return PersonNotFoundException.byId(id);
+                    });
 
-        PersonEvent event = new PersonEvent(PersonEvent.EventType.UPDATE, person);
-        producer.publishPersonUpdated(event);
+            log.info("Found person for update: ID={}, taxNumber={}", person.getId(), person.getTaxNumber());
 
-        return mapToDto(person);
+            person.updatePersonInfo(
+                    request.getFirstName(),
+                    request.getLastName(),
+                    request.getDateOfBirth()
+            );
+
+            PersonEvent event = new PersonEvent(PersonEvent.EventType.UPDATE, person);
+            producer.publishPersonUpdated(event);
+
+            log.info("Person update event published successfully for ID: {}", id);
+            return new OperationResponseDto(
+                    "Person update request successfully sent to Kafka for processing",
+                    "UPDATE"
+            );
+
+        } catch (PersonNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error updating person with tax ID: {}", id);
+            throw new PersonServiceException("Failed to update person", e);
+        }
     }
 
-    public void deletePerson(Long id) {
-        Person person = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Person not found."));
+    public OperationResponseDto deletePerson(UUID id) {
+        log.info("Deleting person with ID: {}", id);
 
-        PersonEvent event = new PersonEvent(PersonEvent.EventType.DELETE, person);
-        producer.publishPersonDeleted(event);
+        try {
+            Person person = repository.findById(id)
+                    .orElseThrow(() -> {
+                        log.warn("Person not found for deletion with ID: {}", id);
+                        return PersonNotFoundException.byId(id);
+                    });
+
+            log.debug("Found person for deletion: ID={}, taxNumber={}", person.getId(), person.getTaxNumber());
+
+            PersonEvent event = new PersonEvent(PersonEvent.EventType.DELETE, person);
+            producer.publishPersonDeleted(event);
+
+            log.info("Person deletion event published successfully for ID: {}", id);
+            return new OperationResponseDto(
+                    "Person deletion request successfully sent to Kafka for processing",
+                    "DELETE"
+            );
+
+        } catch (PersonNotFoundException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Error deleting person with ID: {}", id, ex);
+            throw new PersonServiceException("Failed to delete person", ex);
+        }
     }
 
     public List<PersonResponseDto> findAll() {
-        return repository
-                .findAll()
-                .stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
+        log.info("Retrieving all persons");
+
+        try {
+            List<PersonResponseDto> persons = repository
+                    .findAll()
+                    .stream()
+                    .map(this::mapToDto)
+                    .collect(Collectors.toList());
+
+            log.info("Retrieved {} persons", persons.size());
+            return persons;
+
+        } catch (Exception ex) {
+            log.error("Error retrieving all persons", ex);
+            throw new PersonServiceException("Failed to retrieve persons", ex);
+        }
     }
 
-    public Optional<PersonResponseDto> findById(Long id) {
-        return repository.findById(id).map(this::mapToDto);
+    public PersonResponseDto findById(UUID id) {
+        log.info("Finding person by ID: {}", id);
+
+        try {
+            return repository.findById(id)
+                    .map(this::mapToDto)
+                    .orElseThrow(() -> {
+                        log.warn("Person not found with ID: {}", id);
+                        return PersonNotFoundException.byId(id);
+                    });
+
+        } catch (PersonNotFoundException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Error finding person by ID: {}", id, ex);
+            throw new PersonServiceException("Failed to find person by ID", ex);
+        }
     }
 
-    public Optional<PersonResponseDto> findByTaxNumber(String taxNumber) {
-        return repository.findByTaxNumber(taxNumber).map(this::mapToDto);
+    public PersonResponseDto findByTaxNumber(String taxNumber) {
+        log.info("Finding person by tax number: {}", taxNumber);
+
+        try {
+            return repository.findByTaxNumber(taxNumber)
+                    .map(this::mapToDto)
+                    .orElseThrow(() -> {
+                        log.warn("Person not found with tax number: {}", taxNumber);
+                        return PersonNotFoundException.byTaxNumber(taxNumber);
+                    });
+        } catch (Exception ex) {
+            log.error("Error finding person by tax number: {}", taxNumber, ex);
+            throw new PersonServiceException("Failed to find person by tax number", ex);
+        }
     }
 
-    public List<PersonResponseDto> findByNameAndAge() {
-        return repository.findByNameAndAge("Mi", 30)
-                .stream()
-                .map(this::mapToDto)
-                .toList();
+//    todo: sanitize inputs
+    public List<PersonResponseDto> findByNameAndAge(
+            String firstNamePrefix,
+            String lastNamePrefix,
+            Integer minAge
+    ) {
+        log.info("Searching persons with firstNamePrefix: {}, lastNamePrefix: {}, minAge: {}",
+                firstNamePrefix, lastNamePrefix, minAge);
+
+        try {
+            List<PersonResponseDto> persons = repository.findByNameAndAge(firstNamePrefix, lastNamePrefix, minAge)
+                    .stream()
+                    .map(this::mapToDto)
+                    .toList();
+
+            log.info("Found {} persons", persons.size());
+            return persons;
+
+        } catch (Exception ex) {
+            log.error("Error searching persons with firstNamePrefix: {}, lastNamePrefix: {}, minAge: {}",
+                    firstNamePrefix, lastNamePrefix, minAge, ex);
+            throw new PersonServiceException("Failed to search persons", ex);
+        }
     }
 
     private PersonResponseDto mapToDto(Person person) {

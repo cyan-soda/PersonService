@@ -1,12 +1,16 @@
-package com.example.personservice.application.dto;
+package com.example.personservice.application.dto.person;
 
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
-@Data
+@Getter
+@Setter
 public class PersonResponseDto {
-    private Long id;
+    private UUID id;
     private String firstName;
     private String lastName;
     private int age;

@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -11,11 +12,11 @@ import java.util.UUID;
 public abstract class DomainEvent<T extends Enum<T>> {
     private final UUID eventId;
     private final T eventType;
-    private final Instant occurredOn;
+    private final LocalDateTime occurredOn;
 
     protected DomainEvent(T eventType) {
         this.eventId = UUID.randomUUID();
         this.eventType = eventType;
-        this.occurredOn = Instant.now();
+        this.occurredOn = LocalDateTime.now();
     }
 }

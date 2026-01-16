@@ -1,21 +1,19 @@
 package com.example.personservice.domain.model;
 
 import java.math.BigDecimal;
-import java.text.DateFormat;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.Period;
-import java.util.Objects;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
-import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -24,8 +22,8 @@ import java.time.LocalDate;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Person {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "id", updatable = false, nullable = false)
+    private UUID id = UUID.randomUUID();
 
     @Column(name = "first_name", nullable = false)
     private String firstName;
@@ -34,7 +32,6 @@ public class Person {
     private String lastName;
 
     @Column(name = "date_of_birth", nullable = false)
-//    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate dateOfBirth;
 
     @Column(name = "tax_number", nullable = false, unique = true, updatable = false)
@@ -44,10 +41,10 @@ public class Person {
     private BigDecimal taxDebt = BigDecimal.ZERO;
 
     @CreationTimestamp
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @UpdateTimestamp
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
 
     public void updatePersonInfo(String firstName, String lastName, LocalDate dateOfBirth) {
         this.firstName = firstName;

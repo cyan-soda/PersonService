@@ -7,6 +7,7 @@ import org.springframework.kafka.config.TopicBuilder;
 
 @Configuration
 public class KafkaTopicConfig {
+
     @Bean
     public NewTopic PersonEventTopic() {
         return TopicBuilder.name("person.kafka")
@@ -14,6 +15,7 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
     @Bean
     public NewTopic TaxCalculationTopic() {
         return TopicBuilder.name("tax.calculation.kafka")
@@ -21,4 +23,5 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
 }

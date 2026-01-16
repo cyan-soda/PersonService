@@ -1,33 +1,39 @@
 package com.example.personservice.infrastructure.web;
 
+import com.example.personservice.application.dto.person.OperationResponseDto;
 import com.example.personservice.application.service.PersonService;
-import com.example.personservice.application.dto.CreatePersonRequestDto;
-import com.example.personservice.application.dto.PersonResponseDto;
-import com.example.personservice.application.dto.UpdatePersonRequestDto;
-import com.example.personservice.application.service.TaxService;
+import com.example.personservice.application.dto.person.CreatePersonRequestDto;
+import com.example.personservice.application.dto.person.PersonResponseDto;
+import com.example.personservice.application.dto.person.UpdatePersonRequestDto;
+import com.example.personservice.infrastructure.validation.validator.ValidTaxNumber;
+import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/person")
+@Validated
+@Slf4j
 public class PersonController {
     private final PersonService service;
-    private final TaxService taxService;
 
-    public PersonController(PersonService service, TaxService taxService) {
+    public PersonController(PersonService service) {
         this.service = service;
-        this.taxService = taxService;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<PersonResponseDto> createPerson(@RequestBody CreatePersonRequestDto request) {
-        PersonResponseDto person = service.createPerson(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(person);
+    public ResponseEntity<OperationResponseDto> createPerson(
+            @Valid @RequestBody CreatePersonRequestDto request
+    ) {
+        OperationResponseDto response = service.createPerson(request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @GetMapping
@@ -37,53 +43,48 @@ public class PersonController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<PersonResponseDto>> getFilter() {
-        List<PersonResponseDto> persons = service.findByNameAndAge();
+    public ResponseEntity<List<PersonResponseDto>> searchPerson(
+            @RequestParam(required = false) String firstNamePrefix,
+            @RequestParam(required = false) String lastNamePrefix,
+            @RequestParam Integer minAge
+    ) {
+        List<PersonResponseDto> persons = service.findByNameAndAge(
+                firstNamePrefix,
+                lastNamePrefix,
+                minAge
+        );
         return ResponseEntity.ok(persons);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PersonResponseDto> getPersonById(@PathVariable Long id) {
-        return service
-                .findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @GetMapping("/tax/{taxNumber}")
-    public ResponseEntity<PersonResponseDto> getByTaxNumber(@PathVariable String taxNumber) {
-        return service
-                .findByTaxNumber(taxNumber)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<PersonResponseDto> updatePerson(
-            @PathVariable Long id,
-            @RequestBody UpdatePersonRequestDto request) {
-        PersonResponseDto person = service.updatePerson(id, request);
+    public ResponseEntity<PersonResponseDto> getPersonById(
+            @PathVariable UUID id
+    ) {
+        PersonResponseDto person = service.findById(id);
         return ResponseEntity.ok(person);
     }
 
-    @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public ResponseEntity<Void> deletePerson(@PathVariable Long id) {
-        service.deletePerson(id);
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/tax/debt/{taxNumber}")
-    public BigDecimal getTaxDebt(@PathVariable String taxNumber) {
-        return taxService.getTaxDebt(taxNumber);
-    }
-
-    @PostMapping("/tax/debt/{taxNumber}")
-    @ResponseStatus(HttpStatus.OK)
-    public void addTaxDebt(
-            @PathVariable String taxNumber,
-            @RequestBody BigDecimal amount
+    @GetMapping("/tax/{taxNumber}")
+    public ResponseEntity<PersonResponseDto> getByTaxNumber(
+            @PathVariable
+            @ValidTaxNumber String taxNumber
     ) {
-        taxService.addTaxDebt(taxNumber, amount);
+        PersonResponseDto person = service.findByTaxNumber(taxNumber);
+        return ResponseEntity.ok(person);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<OperationResponseDto> updatePerson(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdatePersonRequestDto request) {
+
+        OperationResponseDto response = service.updatePerson(id, request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<OperationResponseDto> deletePerson(@PathVariable UUID id) {
+        OperationResponseDto response = service.deletePerson(id);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 }

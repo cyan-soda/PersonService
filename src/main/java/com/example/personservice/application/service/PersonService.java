@@ -2,6 +2,7 @@ package com.example.personservice.application.service;
 
 import com.example.personservice.application.dto.person.OperationResponseDto;
 import com.example.personservice.domain.model.Person;
+import com.example.personservice.domain.specification.PersonSpecification;
 import com.example.personservice.infrastructure.exception.PersonAlreadyExistsException;
 import com.example.personservice.infrastructure.exception.PersonNotFoundException;
 import com.example.personservice.infrastructure.exception.PersonServiceException;
@@ -13,6 +14,9 @@ import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.kafka.producers.PersonEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -42,15 +46,13 @@ public class PersonService {
             person.setTaxNumber(request.getTaxNumber());
 
             PersonEvent event = new PersonEvent(PersonEvent.EventType.CREATE, person);
-            producer.publishPersonCreated(event);
+            producer.publishEvent(event);
 
             return new OperationResponseDto(
                     "Person creation request successfully sent to Kafka for processing",
                     "CREATE"
             );
 
-        } catch (PersonAlreadyExistsException e) {
-            throw e;
         } catch (Exception e) {
             log.error("Error creating person with tax number: {}", request.getTaxNumber());
             throw new PersonServiceException("Failed to create person", e);
@@ -76,7 +78,7 @@ public class PersonService {
             );
 
             PersonEvent event = new PersonEvent(PersonEvent.EventType.UPDATE, person);
-            producer.publishPersonUpdated(event);
+            producer.publishEvent(event);
 
             log.info("Person update event published successfully for ID: {}", id);
             return new OperationResponseDto(
@@ -84,8 +86,6 @@ public class PersonService {
                     "UPDATE"
             );
 
-        } catch (PersonNotFoundException e) {
-            throw e;
         } catch (Exception e) {
             log.error("Error updating person with tax ID: {}", id);
             throw new PersonServiceException("Failed to update person", e);
@@ -105,7 +105,7 @@ public class PersonService {
             log.debug("Found person for deletion: ID={}, taxNumber={}", person.getId(), person.getTaxNumber());
 
             PersonEvent event = new PersonEvent(PersonEvent.EventType.DELETE, person);
-            producer.publishPersonDeleted(event);
+            producer.publishEvent(event);
 
             log.info("Person deletion event published successfully for ID: {}", id);
             return new OperationResponseDto(
@@ -113,8 +113,6 @@ public class PersonService {
                     "DELETE"
             );
 
-        } catch (PersonNotFoundException ex) {
-            throw ex;
         } catch (Exception ex) {
             log.error("Error deleting person with ID: {}", id, ex);
             throw new PersonServiceException("Failed to delete person", ex);
@@ -151,8 +149,6 @@ public class PersonService {
                         return PersonNotFoundException.byId(id);
                     });
 
-        } catch (PersonNotFoundException ex) {
-            throw ex;
         } catch (Exception ex) {
             log.error("Error finding person by ID: {}", id, ex);
             throw new PersonServiceException("Failed to find person by ID", ex);
@@ -175,29 +171,17 @@ public class PersonService {
         }
     }
 
-//    todo: sanitize inputs
-    public List<PersonResponseDto> findByNameAndAge(
+    public Page<PersonResponseDto> findByNameAndAge(
             String firstNamePrefix,
             String lastNamePrefix,
-            Integer minAge
+            Integer minAge,
+            Pageable pageable
     ) {
         log.info("Searching persons with firstNamePrefix: {}, lastNamePrefix: {}, minAge: {}",
                 firstNamePrefix, lastNamePrefix, minAge);
 
-        try {
-            List<PersonResponseDto> persons = repository.findByNameAndAge(firstNamePrefix, lastNamePrefix, minAge)
-                    .stream()
-                    .map(this::mapToDto)
-                    .toList();
-
-            log.info("Found {} persons", persons.size());
-            return persons;
-
-        } catch (Exception ex) {
-            log.error("Error searching persons with firstNamePrefix: {}, lastNamePrefix: {}, minAge: {}",
-                    firstNamePrefix, lastNamePrefix, minAge, ex);
-            throw new PersonServiceException("Failed to search persons", ex);
-        }
+        Specification<Person> spec = PersonSpecification.hasNameAndAge(firstNamePrefix, lastNamePrefix, minAge);
+        return repository.findAll(spec, pageable).map(this::mapToDto);
     }
 
     private PersonResponseDto mapToDto(Person person) {

@@ -8,6 +8,8 @@ import com.example.personservice.application.dto.person.UpdatePersonRequestDto;
 import com.example.personservice.infrastructure.validation.validator.ValidTaxNumber;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -43,15 +45,17 @@ public class PersonController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<PersonResponseDto>> searchPerson(
+    public ResponseEntity<Page<PersonResponseDto>> searchPerson(
             @RequestParam(required = false) String firstNamePrefix,
             @RequestParam(required = false) String lastNamePrefix,
-            @RequestParam Integer minAge
+            @RequestParam Integer minAge,
+            Pageable pageable
     ) {
-        List<PersonResponseDto> persons = service.findByNameAndAge(
+        Page<PersonResponseDto> persons = service.findByNameAndAge(
                 firstNamePrefix,
                 lastNamePrefix,
-                minAge
+                minAge,
+                pageable
         );
         return ResponseEntity.ok(persons);
     }

@@ -10,6 +10,8 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -48,9 +50,8 @@ public class PersonController {
     public ResponseEntity<Page<PersonResponseDto>> searchPerson(
             @RequestParam(required = false) String firstNamePrefix,
             @RequestParam(required = false) String lastNamePrefix,
-            @RequestParam Integer minAge,
-            Pageable pageable
-    ) {
+            @RequestParam(required = false) Integer minAge,
+            @PageableDefault(sort = "firstName", direction = Sort.Direction.ASC) Pageable pageable) {
         Page<PersonResponseDto> persons = service.findByNameAndAge(
                 firstNamePrefix,
                 lastNamePrefix,

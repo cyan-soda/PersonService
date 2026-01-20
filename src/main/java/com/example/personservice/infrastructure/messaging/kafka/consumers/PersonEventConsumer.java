@@ -37,23 +37,23 @@ public class PersonEventConsumer {
     }
 
     // for single, non-blocking retry
-//    @RetryableTopic(
-//            attempts = "4",
-//            backOff = @BackOff(
-//                    delay = 1000,
-//                    multiplier = 2,
-//                    maxDelay = 10000
-//            ),
-//            topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
-//            include = {
-//                    SocketException.class,
-//                    ResourceAccessException.class,
-//                    TransientDataAccessException.class,
-//                    RecoverableDataAccessException.class,
-//                    KafkaConsumerException.class
-//            },
-//            dltStrategy = DltStrategy.FAIL_ON_ERROR
-//    )
+    @RetryableTopic(
+            attempts = "4",
+            backOff = @BackOff(
+                    delay = 1000,
+                    multiplier = 2,
+                    maxDelay = 10000
+            ),
+            topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
+            include = {
+                    SocketException.class,
+                    ResourceAccessException.class,
+                    TransientDataAccessException.class,
+                    RecoverableDataAccessException.class,
+                    KafkaConsumerException.class
+            },
+            dltStrategy = DltStrategy.FAIL_ON_ERROR
+    )
     @KafkaListener(
             topics = "person.kafka",
             groupId = "person.crud.group",

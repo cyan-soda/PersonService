@@ -16,7 +16,7 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic PersonEventTopic() {
         return TopicBuilder.name("person.kafka")
-                .partitions(3)
+                .partitions(1)
                 .replicas(1)
                 .build();
     }
@@ -24,7 +24,7 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic TaxCalculationTopic() {
         return TopicBuilder.name("tax.calculation.kafka")
-                .partitions(3)
+                .partitions(1)
                 .replicas(1)
                 .build();
     }

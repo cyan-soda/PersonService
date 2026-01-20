@@ -1,23 +1,35 @@
 package com.example.personservice.infrastructure.messaging.kafka.config;
 
+import com.example.personservice.infrastructure.exception.KafkaConsumerException;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.events.TaxCalculationEvent;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.common.utils.ExponentialBackoff;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.transaction.KafkaTransactionManager;
+import org.springframework.util.backoff.ExponentialBackOff;
 import org.springframework.util.backoff.FixedBackOff;
+import org.springframework.web.client.ResourceAccessException;
 
+import java.net.SocketException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -32,6 +44,28 @@ public class KafkaConsumerConfig {
     public CommonErrorHandler commonErrorHandler() {
         // retry 0 times for fatal errors (deserialization, etc.)
         return new DefaultErrorHandler(new FixedBackOff(0L, 0L));
+    }
+
+    @Bean("taxErrorHandler")
+    public DefaultErrorHandler taxErrorHandler(KafkaTemplate<String, Object> template) {
+        // Recoverer: sends msg to DLT after retries are exhausted
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template);
+
+        // ExponentialBackoff: used for NON-BLOCKING retry
+        ExponentialBackOff backOff = new ExponentialBackOff(1000L, 2.0);
+        backOff.setMaxInterval(10000L);
+//        backOff.setMaxAttempts(4);
+
+        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
+        handler.addRetryableExceptions(
+                SocketException.class,
+                ResourceAccessException.class,
+                TransientDataAccessException.class,
+                RecoverableDataAccessException.class,
+                KafkaConsumerException.class
+        );
+        handler.setSeekAfterError(true);
+        return handler;
     }
 
     // Config for Person Event consumers
@@ -56,14 +90,15 @@ public class KafkaConsumerConfig {
     }
 
     @Bean("taxKafkaListenerContainerFactory")
-    public ConcurrentKafkaListenerContainerFactory<String, TaxCalculationEvent> taxKafkaListenerContainerFactory(CommonErrorHandler commonErrorHandler) {
+    public ConcurrentKafkaListenerContainerFactory<String, TaxCalculationEvent> taxKafkaListenerContainerFactory(
+            DefaultErrorHandler taxErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, TaxCalculationEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(taxCalculationEventConsumerFactory());
-        factory.setCommonErrorHandler(commonErrorHandler);
+        factory.setCommonErrorHandler(taxErrorHandler);
         factory.setBatchListener(true);
+
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-        factory.getContainerProperties().setPollTimeout(5000);
         return factory;
     }
 
@@ -75,7 +110,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
 
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
-        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class.getName());
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, eventType.getName());
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.personservice.infrastructure.messaging.events");
 
@@ -83,6 +118,8 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 10240);
 
         return new DefaultKafkaConsumerFactory<>(props);
     }

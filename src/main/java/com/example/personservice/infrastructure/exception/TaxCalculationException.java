@@ -13,7 +13,7 @@ public class TaxCalculationException extends RuntimeException {
         return new TaxCalculationException("Database error during " + operation);
     }
 
-    public static TaxCalculationException publishingError(String taxNumber) {
-        return new TaxCalculationException("Failed to publish tax calculation event for tax number: " + taxNumber);
+    public static TaxCalculationException processingError(String taxNumber) {
+        return new TaxCalculationException("Failed to process tax calculation event for tax number: " + taxNumber);
     }
 }

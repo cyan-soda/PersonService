@@ -3,6 +3,7 @@ package com.example.personservice.infrastructure.messaging.kafka.config;
 import com.example.personservice.infrastructure.exception.KafkaConsumerException;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.events.TaxCalculationEvent;
+import com.example.personservice.infrastructure.messaging.kafka.retry.SingleErrorHandler;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -68,6 +69,34 @@ public class KafkaConsumerConfig {
         return handler;
     }
 
+    @Bean("personSingleContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personSingleContainerFactory(
+            ConsumerFactory<String, PersonEvent> consumerFactory) {
+        ConcurrentKafkaListenerContainerFactory<String, PersonEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.setBatchListener(false);
+
+        // We handle errors manually in the listener for this exercise
+        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(0L, 0L)));
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        return factory;
+    }
+
+    // 2. Batch Factory (Manual Ack, Blocking Logic inside listener)
+    @Bean("personBatchContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personBatchContainerFactory(
+            ConsumerFactory<String, PersonEvent> consumerFactory) {
+        ConcurrentKafkaListenerContainerFactory<String, PersonEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.setBatchListener(true);
+        factory.setConcurrency(3);
+        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        return factory;
+    }
+
     // Config for Person Event consumers
     @Bean("personConsumerFactory")
     public ConsumerFactory<String, PersonEvent> personEventConsumerFactory() {
@@ -75,11 +104,14 @@ public class KafkaConsumerConfig {
     }
 
     @Bean("personKafkaListenerContainerFactory")
-    public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personKafkaListenerContainerFactory(CommonErrorHandler commonErrorHandler) {
+    public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personKafkaListenerContainerFactory(SingleErrorHandler singleErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, PersonEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(personEventConsumerFactory());
-        factory.setCommonErrorHandler(commonErrorHandler);
+        factory.setCommonErrorHandler(singleErrorHandler);
+        factory.setConcurrency(3);
+        factory.setBatchListener(false);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         return factory;
     }
 
@@ -115,11 +147,11 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.personservice.infrastructure.messaging.events");
 
         // for batch processing
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
+//        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);
-        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 10240);
+//        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+//        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);
+//        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 10240);
 
         return new DefaultKafkaConsumerFactory<>(props);
     }

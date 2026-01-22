@@ -1,3 +1,5 @@
+version: '3.8'
+
 networks:
   local-kafka:
     driver: bridge
@@ -14,6 +16,14 @@ services:
       POSTGRES_PASSWORD: 1234
     ports:
       - "5432:5432"
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    networks:
+      - local-kafka
+    ports:
+      - "6379:6379"
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -36,12 +46,10 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
       KAFKA_LISTENERS: INTERNAL://broker:29092,EXTERNAL://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker:29092,EXTERNAL://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -68,5 +76,16 @@ services:
     depends_on:
       - postgres
       - broker
+      - redis
     ports:
       - "8080:8080"
+    environment:
+      # Internal Docker Networking (Service Names)
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/onboarding
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 1234
+      # Note: Use 'broker:29092' for internal communication
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      # Redis Config
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379

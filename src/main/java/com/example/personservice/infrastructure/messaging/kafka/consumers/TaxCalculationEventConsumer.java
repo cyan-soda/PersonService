@@ -34,17 +34,17 @@ public class TaxCalculationEventConsumer {
 
         log.info("Processing batch of {} tax calculation events", events.size());
 
-        for (TaxCalculationEvent event : events) {
+//        for (TaxCalculationEvent event : events) {
 //            try {
 //                handleEvent(event);
 //            } catch (Exception e) {
 //                log.error("Error processing event: {}. Stopping batch processing and triggering error handler", event);
 //                throw e;
 //            }
-            handleEvent(event);
-        }
-
-        acknowledgment.acknowledge();
+//            handleEvent(event);
+//        }
+//
+//        acknowledgment.acknowledge();
         log.info("Successfully processed and acknowledged batch of {} tax events", events.size());
 
     }

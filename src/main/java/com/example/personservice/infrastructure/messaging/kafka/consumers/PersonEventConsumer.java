@@ -1,9 +1,11 @@
 package com.example.personservice.infrastructure.messaging.kafka.consumers;
 
+import com.example.personservice.application.service.PersonService;
 import com.example.personservice.domain.model.Person;
 import com.example.personservice.infrastructure.exception.KafkaConsumerException;
 import com.example.personservice.infrastructure.repository.PersonRepository;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.RecoverableDataAccessException;
@@ -13,6 +15,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.annotation.RetryableTopic;
 import org.springframework.kafka.retrytopic.DltStrategy;
 import org.springframework.kafka.retrytopic.TopicSuffixingStrategy;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.messaging.handler.annotation.Header;
@@ -28,34 +31,31 @@ import java.util.UUID;
 
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class PersonEventConsumer {
 
-    private final PersonRepository repository;
-
-    public PersonEventConsumer(PersonRepository repository) {
-        this.repository = repository;
-    }
+    private final PersonService service;
 
     // for single, non-blocking retry
-    @RetryableTopic(
-            attempts = "4",
-            backOff = @BackOff(
-                    delay = 1000,
-                    multiplier = 2,
-                    maxDelay = 10000
-            ),
-            topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
-            include = {
-                    SocketException.class,
-                    ResourceAccessException.class,
-                    TransientDataAccessException.class,
-                    RecoverableDataAccessException.class,
-                    KafkaConsumerException.class
-            },
-            dltStrategy = DltStrategy.FAIL_ON_ERROR
-    )
+//    @RetryableTopic(
+//            attempts = "4",
+//            backOff = @BackOff(
+//                    delay = 1000,
+//                    multiplier = 2,
+//                    maxDelay = 10000
+//            ),
+//            topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
+//            include = {
+//                    SocketException.class,
+//                    ResourceAccessException.class,
+//                    TransientDataAccessException.class,
+//                    RecoverableDataAccessException.class,
+//                    KafkaConsumerException.class
+//            },
+//            dltStrategy = DltStrategy.FAIL_ON_ERROR
+//    )
     @KafkaListener(
-            topics = "person.kafka",
+            topics = {"person.kafka", "person.kafka-retry"},
             groupId = "person.crud.group",
             containerFactory = "personKafkaListenerContainerFactory"
     )
@@ -64,117 +64,49 @@ public class PersonEventConsumer {
             @Payload PersonEvent event,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset
+            @Header(KafkaHeaders.OFFSET) long offset,
+            Acknowledgment acknowledgment
     ) {
 
-        log.info("Received Kafka message from topic: {}, partition: {}",
-                topic, partition);
+        log.info("Received PersonEvent from topic: {}, partition: {}, offset: {}",
+                topic, partition, offset);
 
         if (event == null || event.getPerson() == null) {
             log.error("Received null event or null person data");
             throw new IllegalArgumentException("Invalid event data received");
         }
 
+        try {
+            processEvent(event);
+            acknowledgment.acknowledge();
+            log.info("Successfully processed and acknowledged PersonEvent: {}", event.getEventType());
+        } catch (Exception e) {
+            log.error("Error processing PersonEvent: {}", event, e);
+            throw e; // trigger error handler
+        }
+
+    }
+
+    private void processEvent(PersonEvent event) {
+        Person person = event.getPerson();
         switch (event.getEventType()) {
-            case CREATE:
-                createPerson(event);
-                break;
-            case UPDATE:
-                updatePerson(event);
-                break;
-            case DELETE:
-                deletePerson(event);
-                break;
-            default:
+            case CREATE -> {
+                log.info("Processing CREATE event for person: {}", person);
+                service.createPersonFromEvent(person);
+            }
+            case UPDATE -> {
+                log.info("Processing UPDATE event for person: {}", person);
+                service.updatePersonFromEvent(person);
+            }
+            case DELETE -> {
+                log.info("Processing DELETE event for person ID: {}", person.getId());
+                service.deletePersonFromEvent(person);
+            }
+            default -> {
                 log.warn("Unknown event type: {}", event.getEventType());
                 throw new IllegalArgumentException("Unknown event type: " + event.getEventType());
-        }
-
-    }
-
-    private void createPerson(PersonEvent event) {
-        Person data = event.getPerson();
-
-        log.info("Creating person from Kafka event: taxNumber={}",
-                data.getTaxNumber());
-
-        try {
-            if (repository.existsByTaxNumber(data.getTaxNumber())) {
-                log.warn("Person with tax number {} already exists. Skipping creation",
-                        data.getTaxNumber());
-                return;
             }
-
-            Person person = new Person();
-            person.setFirstName(data.getFirstName());
-            person.setLastName(data.getLastName());
-            person.setDateOfBirth(data.getDateOfBirth());
-            person.setTaxNumber(data.getTaxNumber());
-
-            Person saved = repository.save(person);
-            log.info("Person created successfully from Kafka: ID={}, taxNumber={}",
-                    saved.getId(), saved.getTaxNumber());
-
-        } catch (DataIntegrityViolationException ex) {
-            log.warn("Data integrity violation while creating person: {}. Skipping.", ex.getMessage());
-        } catch (Exception ex) {
-            log.error("Error creating person from Kafka event: {}", ex.getMessage(), ex);
-            throw new KafkaConsumerException("Failed to create person", ex);
         }
     }
 
-    private void updatePerson(PersonEvent event) {
-        Person data = event.getPerson();
-
-        log.info("Updating person from Kafka event: ID={}", data.getId());
-
-        if (data.getFirstName().equals("retry")) {
-            log.warn("Simulating DB timeout...");
-            throw new RecoverableDataAccessException(("Simulated DB down"));
-        }
-
-        try {
-            repository.findById(data.getId()).ifPresentOrElse(
-                    person -> {
-                        try {
-                            person.updatePersonInfo(data.getFirstName(), data.getLastName(), data.getDateOfBirth());
-                            Person updated = repository.save(person);
-                            log.info("Person updated successfully from Kafka: ID={}",
-                                    updated.getId());
-                        } catch (Exception ex) {
-                            log.error("Error saving updated person ID={}: {}",
-                                    data.getId(), ex.getMessage(), ex);
-                            throw new KafkaConsumerException("Failed to save updated person", ex);
-                        }
-                    },
-                    () -> {
-                        log.warn("Update failed: Person with ID={} not found",
-                                data.getId());
-                        // todo: handle ordering issues (throw ex, handle)
-                    });
-
-        } catch (Exception ex) {
-            log.error("Error updating person from Kafka event: {}", ex.getMessage(), ex);
-            throw new KafkaConsumerException("Failed to update person", ex);
-        }
-    }
-
-    private void deletePerson(PersonEvent event) {
-        UUID id = event.getPerson().getId();
-
-        log.info("Deleting person from Kafka event: ID={}", id);
-
-        try {
-            if (repository.existsById(id)) {
-                repository.deleteById(id);
-                log.info("Person with ID={} deleted successfully from Kafka", id);
-            } else {
-                log.warn("Person with ID={} not found for deletion. Might already be deleted.", id);
-            }
-
-        } catch (Exception ex) {
-            log.error("Error deleting person from Kafka event : {}", ex.getMessage(), ex);
-            throw new KafkaConsumerException("Failed to delete person", ex);
-        }
-    }
 }

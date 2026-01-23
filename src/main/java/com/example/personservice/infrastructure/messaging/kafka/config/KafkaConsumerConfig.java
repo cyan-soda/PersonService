@@ -49,13 +49,10 @@ public class KafkaConsumerConfig {
 
     @Bean("taxErrorHandler")
     public DefaultErrorHandler taxErrorHandler(KafkaTemplate<String, Object> template) {
-        // Recoverer: sends msg to DLT after retries are exhausted
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template);
 
-        // ExponentialBackoff: used for NON-BLOCKING retry
         ExponentialBackOff backOff = new ExponentialBackOff(1000L, 2.0);
         backOff.setMaxInterval(10000L);
-//        backOff.setMaxAttempts(4);
 
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
         handler.addRetryableExceptions(
@@ -77,13 +74,11 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.setBatchListener(false);
 
-        // We handle errors manually in the listener for this exercise
         factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(0L, 0L)));
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         return factory;
     }
 
-    // 2. Batch Factory (Manual Ack, Blocking Logic inside listener)
     @Bean("personBatchContainerFactory")
     public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personBatchContainerFactory(
             ConsumerFactory<String, PersonEvent> consumerFactory) {
@@ -147,7 +142,7 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.personservice.infrastructure.messaging.events");
 
         // for batch processing
-//        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 5);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 //        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 //        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);

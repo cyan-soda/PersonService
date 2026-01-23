@@ -15,6 +15,7 @@ public class RetryLatch {
     private final StringRedisTemplate redisTemplate;
 
     private static final String SIGNAL_KEY_PREFIX = "kafka:retry:signal:";
+    private static final String RETRY_FLAG_PREFIX = "kafka:retry:flag:";
 
     public enum RetryStatus { SUCCESS, DLT, TIMEOUT }
 
@@ -42,6 +43,22 @@ public class RetryLatch {
 
         redisTemplate.opsForList().rightPush(key, status.name());
         redisTemplate.expire(key, 1, TimeUnit.HOURS);
+
+        setRetrying(taxNumber, false);
+    }
+
+    public void setRetrying(String taxNumber, boolean isRetrying) {
+        String key = RETRY_FLAG_PREFIX + taxNumber;
+        if (isRetrying) {
+            redisTemplate.opsForValue().set(key, "RETRYING", 1, TimeUnit.MINUTES);
+        } else {
+            redisTemplate.delete(key);
+        }
+    }
+
+    public boolean isRetrying(String taxNumber) {
+        String key = RETRY_FLAG_PREFIX + taxNumber;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
     }
 
 }

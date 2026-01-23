@@ -76,36 +76,29 @@ public class KafkaTopicConfig {
                 .build();
     }
 
+    public static final String TAX_TOPIC_BATCH = "tax.kafka.batch";
+    public static final String TAX_RETRY_TOPIC_1 = "tax.kafka.batch.retry-1";
+    public static final String TAX_RETRY_TOPIC_2 = "tax.kafka.batch.retry-2";
+    public static final String TAX_DLT_TOPIC = "tax.kafka.batch.dlt";
+
     @Bean
-    public NewTopic TaxCalculationRetryTopic1() {
-        return TopicBuilder.name("tax.calculation.kafka-retry-1")
-                .partitions(1)
-                .replicas(1)
-                .build();
+    public NewTopic taxBatchTopic() {
+        return TopicBuilder.name(TAX_TOPIC_BATCH).partitions(1).replicas(1).build();
     }
 
     @Bean
-    public NewTopic TaxCalculationRetryTopic2() {
-        return TopicBuilder.name("tax.calculation.kafka-retry-2")
-                .partitions(1)
-                .replicas(1)
-                .build();
+    public NewTopic taxRetryTopic1() {
+        return TopicBuilder.name(TAX_RETRY_TOPIC_1).partitions(1).replicas(1).build();
     }
 
     @Bean
-    public NewTopic TaxCalculationRetryTopic3() {
-        return TopicBuilder.name("tax.calculation.kafka-retry-3")
-                .partitions(1)
-                .replicas(1)
-                .build();
+    public NewTopic taxRetryTopic2() {
+        return TopicBuilder.name(TAX_RETRY_TOPIC_2).partitions(1).replicas(1).build();
     }
 
     @Bean
-    public NewTopic TaxCalculationDltTopic() {
-        return TopicBuilder.name("tax.calculation.kafka-dlt")
-                .partitions(1)
-                .replicas(1)
-                .build();
+    public NewTopic taxDltTopic() {
+        return TopicBuilder.name(TAX_DLT_TOPIC).partitions(1).replicas(1).build();
     }
 
 }

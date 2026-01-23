@@ -355,9 +355,9 @@ elseif ($Choice -eq "2") {
 elseif ($Choice -eq "3") {
 
     $Batch = @(
-        @{ key="TAX301"; value='{"eventType":"CREATE","person":{"firstName":"retry","lastName":"ChainA","dateOfBirth":"1990-01-01","taxNumber":"TAX301"}}' },
-        @{ key="TAX301"; value='{"eventType":"UPDATE","person":{"firstName":"UpdA","lastName":"ChainA","dateOfBirth":"1990-01-01","taxNumber":"TAX301"}}' },
+        @{ key="TAX301"; value='{"eventType":"UPDATE","person":{"firstName":"retry","lastName":"ChainA","dateOfBirth":"1990-01-01","taxNumber":"TAX301"}}' },
         @{ key="TAX301"; value='{"eventType":"DELETE","person":{"firstName":"DelA","lastName":"ChainA","dateOfBirth":"1990-01-01","taxNumber":"TAX301"}}' },
+        @{ key="TAX301"; value='{"eventType":"CREATE","person":{"firstName":"retry","lastName":"ChainA","dateOfBirth":"1990-01-01","taxNumber":"TAX301"}}' },
 
         @{ key="TAX302"; value='{"eventType":"CREATE","person":{"firstName":"Success","lastName":"Indep","dateOfBirth":"1990-01-01","taxNumber":"TAX302"}}' },
         @{ key="TAX303"; value='{"eventType":"CREATE","person":{"firstName":"Success","lastName":"Indep","dateOfBirth":"1990-01-01","taxNumber":"TAX303"}}' },

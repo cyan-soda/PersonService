@@ -70,7 +70,7 @@ public class PersonBatchRetryConsumer {
     }
 
     private int extractRetryCount(ConsumerRecord<String, PersonEvent> record, String taxNumber) {
-        int retryCount = 1; // Default to 1 if header is missing
+        int retryCount = 1;
         Header retryHeader = record.headers().lastHeader("retry-count");
 
         if (retryHeader != null) {
@@ -94,7 +94,6 @@ public class PersonBatchRetryConsumer {
         } else {
             log.info("[RetryWorker] Routing {} to next retry topic for attempt #{}.", taxNumber, retryCount + 1);
             router.routeToNextTopic(event, taxNumber, retryCount);
-            // Note: The latch is NOT notified here, as the process is not yet complete.
         }
     }
 

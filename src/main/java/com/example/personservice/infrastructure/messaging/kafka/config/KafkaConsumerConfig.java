@@ -142,7 +142,7 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.personservice.infrastructure.messaging.events");
 
         // for batch processing
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 5);
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 //        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 //        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);

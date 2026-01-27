@@ -24,6 +24,10 @@ services:
       - local-kafka
     ports:
       - "6379:6379"
+    command:
+      - redis-server --appendonly yes
+    volumes:
+      - ./redis-data:/data
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0

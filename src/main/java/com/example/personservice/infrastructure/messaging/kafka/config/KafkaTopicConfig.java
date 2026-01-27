@@ -101,4 +101,17 @@ public class KafkaTopicConfig {
         return TopicBuilder.name(TAX_DLT_TOPIC).partitions(1).replicas(1).build();
     }
 
+    public static final String TAX_MANUAL_TOPIC = "tax.kafka.manual.batch";
+    public static final String PERSON_MANUAL_TOPIC = "person.kafka.manual.batch";
+
+    @Bean
+    public NewTopic taxManualTopic() {
+        return TopicBuilder.name(TAX_MANUAL_TOPIC).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic personManualTopic() {
+        return TopicBuilder.name(PERSON_MANUAL_TOPIC).partitions(3).replicas(1).build();
+    }
+
 }

@@ -3,13 +3,11 @@ package com.example.personservice.infrastructure.messaging.kafka.consumers;
 import com.example.personservice.application.service.PersonService;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.kafka.retry.RetryRouter;
-import com.example.personservice.infrastructure.messaging.redis.RetryLatch;
+import com.example.personservice.infrastructure.messaging.redis.PersonEventBufferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.header.Header;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
@@ -21,87 +19,81 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PersonBatchRetryConsumer {
 
-    private final PersonService service;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-    private final RetryLatch retryLatch;
-    private final RetryRouter router;
-
-    private static final int MAX_RETRIES = 3;
+    private final PersonService personService;
+    private final PersonEventBufferService bufferService;
+    private final RetryRouter retryRouter;
 
     @KafkaListener(
             topics = {"person.kafka.retry-1", "person.kafka.retry-2", "person.kafka.retry-3"},
             groupId = "person.retry.group",
             containerFactory = "personBatchContainerFactory"
     )
-    public void consumeRetry(List<ConsumerRecord<String, PersonEvent>> records,
-                             Acknowledgment acknowledgment) {
-
-        log.info("[RetryWorker][Batch] Received batch of size: {}", records.size());
+    public void consumeRetry(List<ConsumerRecord<String, PersonEvent>> records, Acknowledgment acknowledgment) {
+        log.info("[RetryWorker] Received batch of size: {}", records.size());
 
         for (ConsumerRecord<String, PersonEvent> record : records) {
             String taxNumber = record.key();
             PersonEvent event = record.value();
+            int retryCount = extractRetryCount(record);
 
-            // 1. Extract retry-count from the individual record's header
-            int retryCount = extractRetryCount(record, taxNumber);
-
-            log.info("[RetryWorker] Processing {} from topic {} (Attempt {})",
-                    taxNumber, record.topic(), retryCount);
+            log.info("[RetryWorker] Processing key {} from topic {} (Attempt {})", taxNumber, record.topic(), retryCount);
 
             try {
-                // 2. Process each event individually
                 processEvent(event);
+                log.info("[RetryWorker] SUCCESS on retried event for key {}. Checking for buffered events.", taxNumber);
 
-                // On success, notify the original consumer via Redis
-                log.info("[RetryWorker] Success for {}. Notifying Batch Consumer.", taxNumber);
-                retryLatch.notifyResult(taxNumber, RetryLatch.RetryStatus.SUCCESS);
+                processBufferedEvents(taxNumber);
 
             } catch (Exception e) {
-                log.error("[RetryWorker] Failed attempt {} for {}: {}", retryCount, taxNumber, e.getMessage());
-
-                // 3. On failure, decide whether to retry again or send to DLT
-                handleRetryFailure(event, taxNumber, retryCount);
+                log.error("[RetryWorker] FAILED attempt {} for key {}: {}", retryCount, taxNumber, e.getMessage());
+                retryRouter.routeToNextTopic(event, taxNumber, retryCount);
             }
         }
-
-        // 4. Acknowledge the entire batch after processing all records
         acknowledgment.acknowledge();
-        log.info("[RetryWorker][Batch] Acknowledged batch of {} records.", records.size());
+        log.info("[RetryWorker] Acknowledged batch of {} records.", records.size());
     }
 
-    private int extractRetryCount(ConsumerRecord<String, PersonEvent> record, String taxNumber) {
-        int retryCount = 1;
-        Header retryHeader = record.headers().lastHeader("retry-count");
-
-        if (retryHeader != null) {
-            try {
-                retryCount = Integer.parseInt(new String(retryHeader.value(), StandardCharsets.UTF_8));
-            } catch (NumberFormatException e) {
-                log.warn("[RetryWorker] Could not parse 'retry-count' header for key {}. Using default value 1.", taxNumber);
+    private void processBufferedEvents(String taxNumber) {
+        while (true) {
+            PersonEvent bufferedEvent = bufferService.popNextBufferedEvent(taxNumber);
+            if (bufferedEvent == null) {
+                log.info("[RetryWorker] No more buffered events for key {}. Clearing retry state.", taxNumber);
+                bufferService.clearRetryState(taxNumber);
+                break;
             }
-        } else {
-            log.warn("[RetryWorker] No 'retry-count' header found for key {}. Using default value 1.", taxNumber);
-        }
 
-        return retryCount;
-    }
-
-    private void handleRetryFailure(PersonEvent event, String taxNumber, int retryCount) {
-        if (retryCount >= MAX_RETRIES) {
-            log.warn("[RetryWorker] Max retries ({}) reached for {}. Sending to DLT.", MAX_RETRIES, taxNumber);
-            router.sendToDlt(event, taxNumber);
-            retryLatch.notifyResult(taxNumber, RetryLatch.RetryStatus.DLT);
-        } else {
-            log.info("[RetryWorker] Routing {} to next retry topic for attempt #{}.", taxNumber, retryCount + 1);
-            router.routeToNextTopic(event, taxNumber, retryCount);
+            log.info("[RetryWorker] Processing buffered event of type {} for key {}.", bufferedEvent.getEventType(), taxNumber);
+            try {
+                processEvent(bufferedEvent);
+                log.info("[RetryWorker] Successfully processed buffered event for key {}.", taxNumber);
+            } catch (Exception e) {
+                log.error("[RetryWorker] FAILED to process a buffered event for key {}. Re-queueing to retry-1.", taxNumber, e);
+                // This buffered event now becomes the primary failed event.
+                // It's sent back to the start of the retry flow. The remaining buffered events stay in Redis.
+                retryRouter.routeToNextTopic(bufferedEvent, taxNumber, 0); // Start its retry cycle
+                break;
+            }
         }
     }
 
     private void processEvent(PersonEvent event) {
         switch (event.getEventType()) {
-            case CREATE -> service.createPersonFromEvent(event.getPerson());
-            case UPDATE -> service.updatePersonFromEvent(event.getPerson());
-            case DELETE -> service.deletePersonFromEvent(event.getPerson());
+            case CREATE -> personService.createPersonFromEvent(event.getPerson());
+            case UPDATE -> personService.updatePersonFromEvent(event.getPerson());
+            case DELETE -> personService.deletePersonFromEvent(event.getPerson());
+            default -> throw new IllegalArgumentException("Unknown event type: " + event.getEventType());
         }
+    }
+
+    private int extractRetryCount(ConsumerRecord<String, PersonEvent> record) {
+        var header = record.headers().lastHeader("retry-count");
+        if (header != null) {
+            try {
+                return Integer.parseInt(new String(header.value(), StandardCharsets.UTF_8));
+            } catch (NumberFormatException e) {
+                log.warn("[RetryWorker] Could not parse 'retry-count' header. Defaulting to 1.");
+            }
+        }
+        return 1; // Default if coming from main topic
     }
 }

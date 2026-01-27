@@ -1,20 +1,18 @@
 package com.example.personservice.infrastructure.messaging.kafka.consumers;
 
 import com.example.personservice.application.service.TaxService;
-import com.example.personservice.infrastructure.exception.PersonNotFoundException;
 import com.example.personservice.infrastructure.messaging.events.TaxCalculationEvent;
-import com.example.personservice.infrastructure.repository.PersonRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -24,151 +22,91 @@ import java.util.concurrent.TimeUnit;
 public class TaxCalculationBatchRetryConsumer {
 
     private final TaxService taxService;
-    private final PersonRepository personRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final RedisTemplate<String, String> redisTemplate;
 
     private static final String TAX_RETRY_TOPIC_1 = "tax.kafka.batch.retry-1";
     private static final String TAX_RETRY_TOPIC_2 = "tax.kafka.batch.retry-2";
     private static final String TAX_DLT_TOPIC = "tax.kafka.batch.dlt";
-    private static final String PROCESSED_KEY_PREFIX = "tax:processed:";
-    private static final int PROCESSED_TTL_SECONDS = 60;
+//    private static final String PROCESSED_KEY_PREFIX = "tax:processed:";
+    private static final int MAX_RETRIES = 2;
 
-    // --- RETRY LEVEL 1 ---
     @KafkaListener(
-            topics = TAX_RETRY_TOPIC_1,
+            topics = {TAX_RETRY_TOPIC_1, TAX_RETRY_TOPIC_2},
             groupId = "tax.batch.retry.group",
             containerFactory = "taxKafkaListenerContainerFactory"
     )
-    @Transactional
-    public void consumeRetry1(List<ConsumerRecord<String, TaxCalculationEvent>> records, Acknowledgment ack) {
-        log.info("[Tax Retry-1] Received batch of size {}", records.size());
-        processBatchOrForward(records, ack, TAX_RETRY_TOPIC_2, "RETRY-2", 1);
-    }
+    public void consumeRetries(List<ConsumerRecord<String, TaxCalculationEvent>> records, Acknowledgment ack) {
+        log.info("[Tax Retry] Received batch of size {} from topics.", records.size());
 
-    // --- RETRY LEVEL 2 ---
-    @KafkaListener(
-            topics = TAX_RETRY_TOPIC_2,
-            groupId = "tax.batch.retry.group",
-            containerFactory = "taxKafkaListenerContainerFactory"
-    )
-    @Transactional
-    public void consumeRetry2(List<ConsumerRecord<String, TaxCalculationEvent>> records, Acknowledgment ack) {
-        log.info("[Tax Retry-2] Received batch of size {}", records.size());
-        processBatchOrForward(records, ack, TAX_DLT_TOPIC, "DLT", 2);
-    }
-
-    // --- HELPER METHOD ---
-    private void processBatchOrForward(List<ConsumerRecord<String, TaxCalculationEvent>> records,
-                                       Acknowledgment ack,
-                                       String nextTopic,
-                                       String nextTopicName,
-                                       int retryLevel) {
-        try {
-            log.info("[Tax Retry-{}] Attempting to process batch of {} records", retryLevel, records.size());
-
-            // Process the batch with validation and idempotency
-            for (ConsumerRecord<String, TaxCalculationEvent> record : records) {
-                TaxCalculationEvent event = record.value();
-                String taxNumber = event.getTaxId();
-                String processedKey = PROCESSED_KEY_PREFIX + taxNumber + ":" + event.getAmount();
-
-                log.info("[Tax Retry-{}] Processing taxNumber: {}, amount: {}",
-                        retryLevel, taxNumber, event.getAmount());
-
-                // Check if already processed (idempotency)
-                if (isAlreadyProcessed(processedKey)) {
-                    log.info("[Tax Retry-{}] Tax calculation for {} already processed. Skipping.", retryLevel, taxNumber);
-                    continue;
-                }
-
-                // Validate event structure - if invalid, send directly to DLT
-                try {
-                    validateTaxEvent(event);
-                } catch (IllegalArgumentException e) {
-                    log.error("[Tax Retry-{}] Invalid event data for {}: {}. Sending to DLT.",
-                            retryLevel, taxNumber, e.getMessage());
-                    kafkaTemplate.send(TAX_DLT_TOPIC, record.key(), record.value());
-                    continue; // Skip this record, continue with others
-                }
-
-                validatePersonExists(taxNumber);
-                processTaxCalculation(event);
-                markAsProcessed(processedKey);
-            }
-
-            ack.acknowledge();
-            log.info("[Tax Retry-{}] Successfully processed batch of {} records", retryLevel, records.size());
-
-        } catch (Exception e) {
-            log.error("[Tax Retry-{}] Batch failed again. Error: {}", retryLevel, e.getMessage());
-
-            if ("DLT".equals(nextTopicName)) {
-                log.error("[Tax Retry-{}] Final retry failed. Sending {} records to DLT.",
-                        retryLevel, records.size());
-
-                records.forEach(record -> {
-                    kafkaTemplate.send(TAX_DLT_TOPIC, record.key(), record.value());
-                    log.debug("[Tax Retry-{}] Sent record {} to DLT", retryLevel, record.key());
-                });
-            } else {
-                log.warn("[Tax Retry-{}] Forwarding {} records to {}.",
-                        retryLevel, records.size(), nextTopicName);
-
-                records.forEach(record -> {
-                    kafkaTemplate.send(nextTopic, record.key(), record.value());
-                    log.debug("[Tax Retry-{}] Forwarded record {} to {}", retryLevel, record.key(), nextTopicName);
-                });
-            }
-
-            ack.acknowledge();
-            log.info("[Tax Retry-{}] Acknowledged batch. Records moved to {}", retryLevel, nextTopicName);
-
+        for (ConsumerRecord<String, TaxCalculationEvent> record : records) {
+            processSingleRecord(record);
         }
+
+        ack.acknowledge();
+        log.info("[Tax Retry] Batch acknowledged.");
     }
 
-    private boolean isAlreadyProcessed(String processedKey) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(processedKey));
-    }
-
-    private void markAsProcessed(String processedKey) {
-        redisTemplate.opsForValue().set(processedKey, "processed", PROCESSED_TTL_SECONDS, TimeUnit.SECONDS);
-    }
-
-    private void validateTaxEvent(TaxCalculationEvent event) {
-        if (event.getTaxId() == null || event.getTaxId().trim().isEmpty()) {
-            throw new IllegalArgumentException("Tax ID cannot be null or empty");
-        }
-        if (event.getAmount() == null || event.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Tax amount must be greater than zero");
-        }
-    }
-
-    private void validatePersonExists(String taxNumber) {
-        if (!personRepository.existsByTaxNumber(taxNumber)) {
-            log.warn("[Tax Retry] Person with taxNumber {} does not exist in database", taxNumber);
-            throw new PersonNotFoundException("Person with tax number " + taxNumber + " not found");
-        }
-        log.debug("[Tax Retry] Person with taxNumber {} exists in database", taxNumber);
-    }
-
-    private void processTaxCalculation(TaxCalculationEvent event) {
-        String taxNumber = event.getTaxId();
-
-        // Simulate failure conditions for testing
-        if ("TAX888".equals(taxNumber)) {
-            throw new RuntimeException("Simulated transient error for " + taxNumber);
-        }
-        if ("TAX889".equals(taxNumber)) {
-            throw new RuntimeException("Simulated fatal error for " + taxNumber);
-        }
+    private void processSingleRecord(ConsumerRecord<String, TaxCalculationEvent> record) {
+        TaxCalculationEvent event = record.value();
 
         try {
-            taxService.processTaxCalculationEvent(event);
-            log.info("[Tax Retry] Successfully processed tax calculation for {}", taxNumber);
+//            if (isDuplicate(event)) {
+//                log.info("[Tax Retry] Skipping duplicate event {}.", event.getEventId());
+//                return;
+//            }
+
+            log.info("[Tax Retry] Processing event for taxNumber: {}", event.getTaxId());
+            taxService.handleTaxCalculation(event.getTaxId(), event.getAmount());
+
+//            markAsProcessed(event);
+            log.info("[Tax Retry] Successfully processed event for taxNumber: {}", event.getTaxId());
+
+        } catch (IllegalArgumentException e) {
+            log.error("[Tax Retry] Invalid event data for event {}: {}. Sending to DLT.", event.getEventId(), e.getMessage());
+            sendToDlt(record, e);
         } catch (Exception e) {
-            log.error("[Tax Retry] Failed to process tax calculation for {}: {}", taxNumber, e.getMessage());
-            throw e;
+            log.warn("[Tax Retry] Retryable error for event {}: {}. Forwarding for next attempt.", event.getEventId(), e.getMessage());
+            forwardToNextTopic(record, e);
         }
     }
+
+    private void forwardToNextTopic(ConsumerRecord<String, TaxCalculationEvent> record, Exception e) {
+        int retryCount = 0;
+        Header retryHeader = record.headers().lastHeader("retry-count");
+        if (retryHeader != null) {
+            retryCount = Integer.parseInt(new String(retryHeader.value()));
+        }
+
+        if (retryCount >= MAX_RETRIES) {
+            log.error("[Tax Retry] Max retries ({}) reached for event {}. Sending to DLT.", MAX_RETRIES, record.key());
+            sendToDlt(record, e);
+        } else {
+            String nextTopic = (retryCount == 1) ? TAX_RETRY_TOPIC_2 : TAX_DLT_TOPIC;
+            int nextRetryCount = retryCount + 1;
+            log.info("[Tax Retry] Forwarding event {} to {} (attempt {}).", record.key(), nextTopic, nextRetryCount);
+
+            ProducerRecord<String, Object> nextRecord = new ProducerRecord<>(nextTopic, record.key(), record.value());
+            nextRecord.headers().add("retry-count", String.valueOf(nextRetryCount).getBytes());
+            nextRecord.headers().add("error-message", e.getMessage().getBytes());
+
+            kafkaTemplate.send(nextRecord);
+        }
+    }
+
+    private void sendToDlt(ConsumerRecord<String, TaxCalculationEvent> record, Exception e) {
+        ProducerRecord<String, Object> dltRecord = new ProducerRecord<>(TAX_DLT_TOPIC, record.key(), record.value());
+        dltRecord.headers().add("final-error", e.getMessage().getBytes());
+        kafkaTemplate.send(dltRecord);
+    }
+
+//    private boolean isDuplicate(TaxCalculationEvent event) {
+//        String processedKey = PROCESSED_KEY_PREFIX + event.getEventId();
+//        return Boolean.TRUE.equals(redisTemplate.hasKey(processedKey));
+//    }
+//
+//    private void markAsProcessed(TaxCalculationEvent event) {
+//        String processedKey = PROCESSED_KEY_PREFIX + event.getEventId();
+//        redisTemplate.opsForValue().set(processedKey, "processed", 24, TimeUnit.HOURS);
+//    }
 }

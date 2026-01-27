@@ -35,6 +35,8 @@ public class TaxService {
 
         if ("TAX000".equals(taxNumber)) {
             throw new RecoverableDataAccessException("Simulated Tax Calculation Error");
+        } else if (BigDecimal.ZERO.equals(amount)) {
+            throw new IllegalArgumentException("Simulate Fatal Error for Tax Calculation");
         }
         log.info("Calculated tax for {}", taxNumber);
 

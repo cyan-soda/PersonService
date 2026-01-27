@@ -5,9 +5,11 @@ import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.kafka.retry.ErrorClassifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.kafka.annotation.BackOff;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.annotation.RetryableTopic;
+import org.springframework.kafka.retrytopic.TopicSuffixingStrategy;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -16,34 +18,36 @@ import org.springframework.stereotype.Component;
 public class PersonSingleConsumer {
 
     private final PersonService personService;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ErrorClassifier errorClassifier;
 
     @KafkaListener(
             topics = "person.kafka.single",
-            containerFactory = "personSingleContainerFactory",
-            groupId = "person.single.group"
+            groupId = "person.single.group",
+            containerFactory = "personSingleContainerFactory"
     )
-    public void consumeSingle(PersonEvent event, Acknowledgment ack) {
-        try {
-            log.info("[Single] Processing event: {}", event.getEventType());
-            processEvent(event);
-            ack.acknowledge();
-        } catch (Exception e) {
-            handleError(event, e);
-            ack.acknowledge(); // Commit offset because we moved it to retry/dlt
-        }
-    }
+    @RetryableTopic(
+            attempts = "4",
+            backOff = @BackOff(delay = 1000, multiplier = 2, maxDelay = 10000),
+            autoCreateTopics = "true",
+            dltTopicSuffix = ".dlt",
+            topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
+            include = Exception.class
+    )
+    public void consumeSingle(PersonEvent event) {
+        log.info("[Single] Processing event: {}", event.getEventType());
 
-    private void handleError(PersonEvent event, Exception e) {
-        ErrorClassifier.ErrorType type = errorClassifier.classifyError(e);
-        if (type == ErrorClassifier.ErrorType.FATAL) {
-            log.error("[Single] Fatal error. Sending to DLT.");
-            kafkaTemplate.send("person.kafka.dlt", event.getPerson().getTaxNumber(), event);
-        } else {
-            log.info("[Single] Retryable error. Sending to Retry Topic.");
-            // Send to shared retry topic
-            kafkaTemplate.send("person.kafka.retry", event.getPerson().getTaxNumber(), event);
+        try {
+            processEvent(event);
+        } catch (Exception e) {
+            ErrorClassifier.ErrorType type = errorClassifier.classifyError(e);
+
+            if (type == ErrorClassifier.ErrorType.FATAL) {
+                log.error("[Single] Fatal error → skipping retries, sending to DLT");
+                throw new DataIntegrityViolationException(e.getMessage());
+            }
+
+            log.warn("[Single] Retryable error → triggering retry");
+            throw e;
         }
     }
 

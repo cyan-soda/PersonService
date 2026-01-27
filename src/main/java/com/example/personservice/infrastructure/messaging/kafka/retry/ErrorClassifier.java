@@ -24,7 +24,6 @@ public class ErrorClassifier {
     public enum ErrorType { FATAL, RETRYABLE }
 
     public ErrorType classifyError(Exception exception) {
-        // 1. Unwrap the exception if it's a wrapper (e.g., KafkaConsumerException or RuntimeException)
         Throwable cause = exception;
         while ((cause instanceof KafkaConsumerException)
                 && cause.getCause() != null) {
@@ -33,20 +32,14 @@ public class ErrorClassifier {
 
         log.debug("Classifying error: {} (Original: {})", cause.getClass().getSimpleName(), exception.getClass().getSimpleName());
 
-        // 2. FATAL ERRORS (No point in retrying)
         if (isFatal(cause)) {
             return ErrorType.FATAL;
         }
 
-        // 3. RETRYABLE ERRORS (Transient issues)
         if (isRetryable(cause)) {
             return ErrorType.RETRYABLE;
         }
 
-        // 4. Default Behavior
-        // For unknown errors, it is usually safer to RETRY a few times in case of a glitch,
-        // unless you want strict validation where unknown = FATAL.
-        // Given your requirements (network, db, etc), defaulting to RETRYABLE is standard.
         return ErrorType.RETRYABLE;
     }
 
@@ -64,6 +57,6 @@ public class ErrorClassifier {
                 t instanceof SocketTimeoutException ||
                 t instanceof TimeoutException ||
                 t instanceof TransientDataAccessException ||
-                t instanceof RecoverableDataAccessException; // Explicitly what we throw in simulation
+                t instanceof RecoverableDataAccessException;
     }
 }

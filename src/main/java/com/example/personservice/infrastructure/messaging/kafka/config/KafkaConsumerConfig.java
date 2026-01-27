@@ -7,6 +7,7 @@ import com.example.personservice.infrastructure.messaging.kafka.retry.SingleErro
 import com.fasterxml.jackson.databind.JsonSerializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.ExponentialBackoff;
@@ -42,8 +43,19 @@ public class KafkaConsumerConfig {
     private String bootstrapServers;
 
     @Bean
+    public ConsumerFactory<String, String> consumerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
     public CommonErrorHandler commonErrorHandler() {
-        // retry 0 times for fatal errors (deserialization, etc.)
         return new DefaultErrorHandler(new FixedBackOff(0L, 0L));
     }
 
@@ -81,14 +93,19 @@ public class KafkaConsumerConfig {
 
     @Bean("personBatchContainerFactory")
     public ConcurrentKafkaListenerContainerFactory<String, PersonEvent> personBatchContainerFactory(
-            ConsumerFactory<String, PersonEvent> consumerFactory) {
+            ConsumerFactory<String, PersonEvent> consumerFactory, KafkaTemplate<?, ?> kafkaTemplate) {
         ConcurrentKafkaListenerContainerFactory<String, PersonEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.setBatchListener(true);
         factory.setConcurrency(3);
-        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        FixedBackOff backOff = new FixedBackOff(1000L, 3);
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
+                (r, e) -> new TopicPartition("person.kafka.dlt", r.partition()));
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
+        factory.setCommonErrorHandler(errorHandler);
+
         return factory;
     }
 
@@ -118,14 +135,19 @@ public class KafkaConsumerConfig {
 
     @Bean("taxKafkaListenerContainerFactory")
     public ConcurrentKafkaListenerContainerFactory<String, TaxCalculationEvent> taxKafkaListenerContainerFactory(
-            DefaultErrorHandler taxErrorHandler) {
+            DefaultErrorHandler taxErrorHandler, KafkaTemplate<?, ?> kafkaTemplate) {
         ConcurrentKafkaListenerContainerFactory<String, TaxCalculationEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(taxCalculationEventConsumerFactory());
         factory.setCommonErrorHandler(taxErrorHandler);
         factory.setBatchListener(true);
-
+        factory.setConcurrency(3);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        FixedBackOff backOff = new FixedBackOff(1000L, 3);
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
+                (r, e) -> new TopicPartition("tax.kafka.batch.dlt", r.partition()));
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
+        factory.setCommonErrorHandler(errorHandler);
         return factory;
     }
 
@@ -141,12 +163,8 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, eventType.getName());
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.personservice.infrastructure.messaging.events");
 
-        // for batch processing
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-//        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-//        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 10000);
-//        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 10240);
 
         return new DefaultKafkaConsumerFactory<>(props);
     }

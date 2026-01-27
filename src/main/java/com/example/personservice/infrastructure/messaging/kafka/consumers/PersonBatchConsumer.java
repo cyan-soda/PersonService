@@ -3,23 +3,18 @@ package com.example.personservice.infrastructure.messaging.kafka.consumers;
 import com.example.personservice.application.service.PersonService;
 import com.example.personservice.infrastructure.messaging.events.PersonEvent;
 import com.example.personservice.infrastructure.messaging.kafka.retry.ErrorClassifier;
-import com.example.personservice.infrastructure.messaging.redis.RetryLatch;
+import com.example.personservice.infrastructure.messaging.redis.PersonEventBufferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Component
@@ -30,155 +25,61 @@ public class PersonBatchConsumer {
     private final PersonService personService;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ErrorClassifier errorClassifier;
-    private final RetryLatch retryLatch;
-
-    // Thread pool for parallel processing of different keys within a batch
-    private final ExecutorService executor = Executors.newFixedThreadPool(10);
+    private final PersonEventBufferService bufferService;
 
     @KafkaListener(
             topics = "person.kafka.batch",
             containerFactory = "personBatchContainerFactory",
             groupId = "person.batch.group"
     )
-    public void consumeBatch(
-            List<ConsumerRecord<String, PersonEvent>> records,
-            Acknowledgment ack
-    ) {
-
+    public void consumeBatch(List<ConsumerRecord<String, PersonEvent>> records, Acknowledgment ack) {
         log.info("[Batch] Received batch of size: {}", records.size());
 
-        // 1. Group records by key (TaxNumber) to preserve order PER KEY
-        Map<String, List<ConsumerRecord<String, PersonEvent>>> groupedRecords =
-                records.stream()
-                        .collect(Collectors.groupingBy(
-                                ConsumerRecord::key,
-                                LinkedHashMap::new,
-                                Collectors.toList()
-                        ));
+        try {
+            Map<String, List<PersonEvent>> groupedEvents = records.stream()
+                    .collect(Collectors.groupingBy(
+                            ConsumerRecord::key,
+                            LinkedHashMap::new,
+                            Collectors.mapping(ConsumerRecord::value, Collectors.toList())
+                    ));
 
-        // 2. Process each key in parallel
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-
-        for (Map.Entry<String, List<ConsumerRecord<String, PersonEvent>>> entry : groupedRecords.entrySet()) {
-            String taxNumber = entry.getKey();
-            List<ConsumerRecord<String, PersonEvent>> eventsForKey = entry.getValue();
-
-            CompletableFuture<Void> future =
-                    CompletableFuture.runAsync(
-                            () -> processKeyEvents(taxNumber, eventsForKey),
-                            executor
-                    );
-
-            futures.add(future);
-        }
-
-        // 3. Wait for ALL keys to finish before ACK
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-        log.info("[Batch] All keys processed. Acknowledging batch.");
-        ack.acknowledge();
-    }
-
-    private void processKeyEvents(
-            String taxNumber,
-            List<ConsumerRecord<String, PersonEvent>> events
-    ) {
-        retryLatch.clearSignal(taxNumber);
-
-        boolean isRetrying = false;
-        boolean isCriticalFailed = false;
-
-        for (ConsumerRecord<String, PersonEvent> record : events) {
-            PersonEvent event = record.value();
-
-            if (isCriticalFailed) {
-                log.warn(
-                        "[Batch-Key:{}] Previous CREATE. Sending {} to DLT.",
-                        taxNumber,
-                        event.getEventType()
-                );
-                kafkaTemplate.send("person.kafka.dlt", taxNumber, event);
-                continue;
-            }
-
-            // If already retrying, block this key until retry resolves
-            if (isRetrying) {
-                log.info(
-                        "[Batch-Key:{}] Dependent event ({}). Waiting for previous retry...",
-                        taxNumber,
-                        event.getEventType()
-                );
+            for (Map.Entry<String, List<PersonEvent>> entry : groupedEvents.entrySet()) {
+                String taxNumber = entry.getKey();
+                List<PersonEvent> events = entry.getValue();
 
                 try {
-                    RetryLatch.RetryStatus status =
-                            retryLatch.waitForResult(taxNumber, 60);
+                    if (bufferService.isKeyInRetry(taxNumber)) {
+                        log.info("[Batch] Key {} is in RETRY state. Buffering {} new event(s).", taxNumber, events.size());
+                        bufferService.bufferEvents(taxNumber, events);
+                        continue;
+                    }
 
-                    if (status == RetryLatch.RetryStatus.SUCCESS) {
-                        log.info(
-                                "[Batch-Key:{}] Dependency resolved. Resuming.",
-                                taxNumber
-                        );
-                        isRetrying = false;
-                    } else {
-                        log.error(
-                                "[Batch-Key:{}] Dependency failed/timed-out. Sending {} to DLT.",
-                                taxNumber,
-                                event.getEventType()
-                        );
-                        kafkaTemplate.send("person.kafka.dlt", taxNumber, event);
-                        isRetrying = false;
+                    // Process events sequentially for the current key
+                    for (PersonEvent event : events) {
+                        try {
+                            processEvent(event);
+                            log.info("[Batch] Successfully processed event for key {}.", taxNumber);
+                        } catch (Exception e) {
+                            log.error("[Batch] Error processing event for key {}. Initiating retry flow.", taxNumber, e);
+                            handleProcessingError(taxNumber, event, e);
+
+                            int failedEventIndex = events.indexOf(event);
+                            List<PersonEvent> remainingEvents = events.subList(failedEventIndex + 1, events.size());
+                            if (!remainingEvents.isEmpty()) {
+                                log.info("[Batch] Buffering {} subsequent event(s) for key {} due to failure.", remainingEvents.size(), taxNumber);
+                                bufferService.bufferEvents(taxNumber, remainingEvents);
+                            }
+
+                            break;
+                        }
                     }
                 } catch (Exception e) {
-                    log.error(
-                            "[Batch-Key:{}] Redis error. Failing batch.",
-                            taxNumber,
-                            e
-                    );
-                    throw new RuntimeException(e);
+                    log.error("[Batch] UNEXPECTED error while processing key {}. Skipping to next key.", taxNumber, e);
                 }
             }
-
-            // Attempt processing
-            try {
-                processEvent(event);
-            } catch (Exception e) {
-                boolean isSentToRetry = handleBatchError(record, e);
-                if (isSentToRetry) {
-                    isRetrying = true;
-                } else {
-                    if (event.getEventType() == PersonEvent.EventType.CREATE) {
-                        log.error("[BATCH-Key:{}] Fatal CREATE error. Breaking chain.", taxNumber);
-                        isCriticalFailed = true;
-                    }
-                }
-            }
-        }
-    }
-
-    private boolean handleBatchError(
-            ConsumerRecord<String, PersonEvent> record,
-            Exception e
-    ) {
-        String taxNumber = record.key();
-        PersonEvent event = record.value();
-
-        ErrorClassifier.ErrorType type = errorClassifier.classifyError(e);
-
-        if (type == ErrorClassifier.ErrorType.FATAL) {
-            log.error("[Batch] Fatal error for {}. Sending to DLT.", taxNumber);
-            kafkaTemplate.send("person.kafka.dlt", taxNumber, event);
-            return false;
-        } else {
-            log.info("[Batch] Retryable error for {}. Sending to retry-1.", taxNumber);
-
-            ProducerRecord<String, Object> retryRecord =
-                    new ProducerRecord<>("person.kafka.retry-1", taxNumber, event);
-
-            retryRecord.headers()
-                    .add("retry-count", "1".getBytes());
-
-            kafkaTemplate.send(retryRecord);
-            return true;
+        } finally {
+            ack.acknowledge();
+            log.info("[Batch] Acknowledged batch of size: {}.", records.size());
         }
     }
 
@@ -187,6 +88,21 @@ public class PersonBatchConsumer {
             case CREATE -> personService.createPersonFromEvent(event.getPerson());
             case UPDATE -> personService.updatePersonFromEvent(event.getPerson());
             case DELETE -> personService.deletePersonFromEvent(event.getPerson());
+            default -> throw new IllegalArgumentException("Unknown event type: " + event.getEventType());
+        }
+    }
+
+    private void handleProcessingError(String taxNumber, PersonEvent event, Exception e) {
+        ErrorClassifier.ErrorType type = errorClassifier.classifyError(e);
+
+        if (type == ErrorClassifier.ErrorType.FATAL) {
+            log.error("[Batch] FATAL error for key {}. Sending to DLT and marking key as DLT.", taxNumber);
+            kafkaTemplate.send("person.kafka.dlt", taxNumber, event);
+            bufferService.markAsDlt(taxNumber);
+        } else {
+            log.warn("[Batch] RETRYABLE error for key {}. Sending to Retry-1 and marking key for retry.", taxNumber);
+            kafkaTemplate.send("person.kafka.retry-1", taxNumber, event);
+            bufferService.markAsRetrying(taxNumber);
         }
     }
 }

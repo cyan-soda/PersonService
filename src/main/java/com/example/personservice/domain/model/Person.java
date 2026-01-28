@@ -1,10 +1,5 @@
 package com.example.personservice.domain.model;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.Period;
-
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -13,6 +8,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Period;
 import java.util.UUID;
 
 @Getter
@@ -34,11 +31,9 @@ public class Person {
     @Column(name = "date_of_birth", nullable = false)
     private LocalDate dateOfBirth;
 
-    @Column(name = "tax_number", nullable = false, unique = true, updatable = false)
-    private String taxNumber;
-
-    @Column(name = "tax_debt", nullable = true)
-    private BigDecimal taxDebt = BigDecimal.ZERO;
+    @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JoinColumn(name = "tax_number", referencedColumnName = "tax_number")
+    private Tax taxInfo;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
@@ -54,11 +49,5 @@ public class Person {
 
     public int getAge() {
         return Period.between(dateOfBirth, LocalDate.now()).getYears();
-    }
-
-    public void addTaxDebt(BigDecimal amount) {
-        if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
-            this.taxDebt = this.taxDebt.add(amount);
-        }
     }
 }

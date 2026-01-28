@@ -1,6 +1,6 @@
 databaseChangeLog:
   - changeSet:
-      id: 001
+      id: '001-initial-schema'
       author: postgres
       preConditions:
         - dbms:
@@ -14,8 +14,8 @@ databaseChangeLog:
                   type: UUID
                   defaultValueComputed: gen_random_uuid()
                   constraints:
-                      primaryKey: true
-                      nullable: false
+                    primaryKey: true
+                    nullable: false
               - column:
                   name: first_name
                   type: VARCHAR(255)
@@ -32,26 +32,54 @@ databaseChangeLog:
                   constraints:
                     nullable: false
               - column:
-                  name: tax_number
-                  type: VARCHAR(50)
-                  constraints:
-                    nullable: false
-                    unique: true
-              - column:
-                  name: tax_debt
-                  type: DECIMAL(10,2)
-                  constraints:
-                    nullable: true
-              - column:
                   name: created_at
                   type: TIMESTAMP
-                  constraints:
-                    nullable: true
+                  defaultValueComputed: CURRENT_TIMESTAMP
               - column:
                   name: updated_at
                   type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+
+  - changeSet:
+      id: '002-create-tax-entity'
+      author: postgres
+      changes:
+        - createTable:
+            tableName: tax
+            columns:
+              - column:
+                  name: tax_number
+                  type: VARCHAR(255)
                   constraints:
-                    nullable: true
-        - addUniqueConstraint:
-            columnNames: tax_number
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tax_debt
+                  type: DECIMAL(19, 2)
+                  defaultValue: "0.00"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+
+  - changeSet:
+      id: '003-link-person-to-tax'
+      author: postgres
+      changes:
+        - addColumn:
             tableName: person
+            columns:
+              - column:
+                  name: tax_number
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    foreignKeyName: fk_person_tax
+                    references: tax(tax_number)

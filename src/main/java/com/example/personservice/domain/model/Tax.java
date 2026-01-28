@@ -1,10 +1,6 @@
 package com.example.personservice.domain.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
@@ -17,14 +13,16 @@ import java.time.LocalDateTime;
 @Setter
 @Entity
 @Table(name = "tax")
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class Tax {
     @Id
-    @Column(name = "taxId", updatable = false, nullable = false)
-    private String taxId;
+    @Column(name = "tax_number", updatable = false, nullable = false)
+    private String taxNumber;
 
-    @Column(name = "taxDebt")
-    private BigDecimal taxDebt;
+    @Column(name = "tax_debt", nullable = false)
+    private BigDecimal taxDebt = BigDecimal.ZERO;
+
+    @OneToOne(mappedBy = "taxInfo")
+    private Person person;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
@@ -37,5 +35,4 @@ public class Tax {
             this.taxDebt = this.taxDebt.add(amount);
         }
     }
-
 }

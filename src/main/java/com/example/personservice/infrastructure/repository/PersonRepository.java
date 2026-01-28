@@ -10,6 +10,5 @@ import java.util.UUID;
 
 @Repository
 public interface PersonRepository extends JpaRepository<Person, UUID>, JpaSpecificationExecutor<Person>{
-    Optional<Person> findByTaxNumber(String taxNumber);
-    boolean existsByTaxNumber(String taxNumber);
+    Optional<Person> findByTaxInfo_TaxNumber(String taxNumber);
 }

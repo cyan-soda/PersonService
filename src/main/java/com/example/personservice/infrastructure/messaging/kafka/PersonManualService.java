@@ -57,7 +57,7 @@ public class PersonManualService {
 
     private void processPersonDomainLogic(PersonEvent event) {
         if (event.getPerson().getFirstName().contains("Fail")) {
-            throw new RuntimeException("Simulated Domain Error for " + event.getPerson().getTaxNumber());
+            throw new RuntimeException("Simulated Domain Error for " + event.getPerson().getTaxInfo().getTaxNumber());
         }
         log.info("Successfully processed {} for Person ID {}", event.getEventType(), event.getPerson().getId());
     }

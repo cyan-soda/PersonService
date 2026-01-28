@@ -57,7 +57,7 @@ public class PersonEventProducer {
     }
 
     private String generateKey(PersonEvent event) {
-        return event.getPerson().getTaxNumber();
+        return event.getPerson().getTaxInfo().getTaxNumber();
     }
 
     private String getTopicForMode(KafkaPersonProperties.ProcessingMode mode) {
